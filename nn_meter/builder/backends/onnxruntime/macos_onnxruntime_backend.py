@@ -69,6 +69,25 @@ class MacM4ONNXRuntimeProfiler(BaseProfiler):
             return [self.providers]
         return list(self.providers)
 
+    def _resolve_providers(self, ort):
+        requested = self._normalize_providers()
+        available = set(ort.get_available_providers())
+
+        # Keep requested priority order, but only use providers present in this ORT build.
+        selected = [provider for provider in requested if provider in available]
+        if selected:
+            return selected
+
+        # Hard fallback for this backend: always use CPU EP when CoreML is unavailable.
+        if "CPUExecutionProvider" in available:
+            return ["CPUExecutionProvider"]
+
+        # Last resort for unusual ORT builds that do not expose CPU EP.
+        available_list = ort.get_available_providers()
+        if available_list:
+            return [available_list[0]]
+        raise RuntimeError("No ONNX Runtime execution providers are available.")
+
     def _normalize_input_shapes(self, input_shape, session_inputs):
         """
         nn-Meter passes `input_shape` as a list of tensor shapes (no batch dim).
@@ -98,7 +117,7 @@ class MacM4ONNXRuntimeProfiler(BaseProfiler):
     def profile(self, model_path: str, input_shape=None, **kwargs):
         import onnxruntime as ort
 
-        providers = self._normalize_providers()
+        providers = self._resolve_providers(ort)
         sess_options = ort.SessionOptions()
 
         if self.intra_op_num_threads is not None:
