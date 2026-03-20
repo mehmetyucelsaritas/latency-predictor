@@ -120,12 +120,16 @@ class OnnxBasedTorchConverter(OnnxConverter):
         with tempfile.TemporaryFile() as fp:
             torch.onnx.export(model, example_inputs, fp)
             fp.seek(0)
-            model = onnx.load(fp, load_external_data=False)
+            # onnx>=1.17 may fail on anonymous temp file descriptors; load from bytes.
+            model = onnx.load_from_string(fp.read())
 
         # convert model
         simplify = try_import_onnxsim()
-        model_simp, check = simplify(model)
-
-        assert check, "Simplified ONNX model could not be validated"
-        super().__init__(model_simp)
+        if simplify is not None:
+            model_simp, check = simplify(model)
+            assert check, "Simplified ONNX model could not be validated"
+            super().__init__(model_simp)
+        else:
+            # Fallback: proceed with the exported ONNX model if onnx-simplifier is unavailable.
+            super().__init__(model)
 
